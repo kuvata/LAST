@@ -4,6 +4,7 @@ import Data.Char
 import Data.List
 import Control.Monad.Trans.State
 import Control.Monad
+import Data.Bifunctor (second)
 
 trimLRspaces = reverse.(dropWhile isSpace)
               .reverse.(dropWhile isSpace)
@@ -21,13 +22,13 @@ parseBracket' s = trimLRspaces a : parseBracket' (drop 1 b)
                  where (a,b) = break (==',') s
 parseBracket  :: String -> [String]
 parseBracket  "{}" = []
-parseBracket  ('{':xs) = if (takeLast xs /= '}') then error "Descriptor doesn't end with `}`"
+parseBracket  ('{':xs) = if takeLast xs /= '}' then error "Descriptor doesn't end with `}`"
                          else parseBracket' $ init xs
-                        where takeLast (_:ys) = if length ys == 1 then ys!!0 else takeLast ys
+                        where takeLast (_:ys) = if length ys == 1 then head ys else takeLast ys
 parseBracket  _ = error "Descriptor doesn't start with `{`"
 
 parseEQN :: Input -> [(String, [String])]
-parseEQN = map ((\(a,b) -> (a, parseBracket b)))
+parseEQN = map (second parseBracket)
           .splitEQUAL
 
 splitEQUAL :: Input -> [(String, String)]
@@ -62,7 +63,7 @@ mem = [SYM("a", "{b}"), SYM("c", "{d}")]
 eval :: String -> State [SYM] [String]
 eval str = state$ f str
            where f str s = (,s)
-                        .(map (show.genSYM.(flip evalState s).evalRHS)) -- Replace `*(VARNAME)` to it's content
+                        .(map (show.genSYM.(`evalState` s).evalRHS)) -- Replace `*(VARNAME)` to it's content
                         .parse$str
                  --s = loadSym'.parse$str
 loadSym' = map$ SYM.(\(a,b) -> (a, '{':intercalate ", " (filter ((/='*').(!!0)) b)++"}"))
@@ -75,8 +76,7 @@ parse str = parseEQN.splitLines
 --exec' s = (flip evalState s).eval
 --exec = (flip evalState []).eval
 
-exec str = evalState (eval str) s
-          where s = loadSym'.parse$str
+exec str = (evalState (eval str)).loadSym'$parse str
 
 main = do
     x0 <- getContents
