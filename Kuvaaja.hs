@@ -35,6 +35,8 @@ splitEQUAL = map (f.(break (=='=')))
           where f (a,b) = (trimLRspaces a, trimLRspaces.(drop 1)$b)
 
 newtype SYM = SYM {eq::(String, String)}
+genSYM :: (String, String) -> SYM
+genSYM (a,b) = SYM(a, '{':b++"}")
 instance Show SYM where
     show (SYM(a,b)) = a++"="++b
 query :: String -> State [SYM] (Maybe String)
@@ -57,18 +59,26 @@ evalRHS x = state $ f x
 mem :: [SYM]
 mem = [SYM("a", "{b}"), SYM("c", "{d}")]
 -- parse :: String -> [SYM] ->
-eval str = f str
-           where f str = (,s)
-                        .(map ((flip evalState s).evalRHS)) -- Replace `*(VARNAME)` to it's content
+eval :: String -> State [SYM] [String]
+eval str = state$ f str
+           where f str s = (,s)
+                        .(map (show.genSYM.(flip evalState s).evalRHS)) -- Replace `*(VARNAME)` to it's content
                         .parse$str
-                 loadSym = map$ SYM.(\(a,b) -> (a, '{':intercalate ", " (filter ((/='*').(!!0)) b)++"}"))
-                 s = loadSym.parse$str
+                 --s = loadSym'.parse$str
+loadSym' = map$ SYM.(\(a,b) -> (a, '{':intercalate ", " (filter ((/='*').(!!0)) b)++"}"))
+loadSym :: (Monad m) => [(String, String)] -> StateT [SYM] m ()
+loadSym = put.(map (SYM.(\(a,b) -> (a, '{':b++"}"))))
 parse str = parseEQN.splitLines
            $str
+--exec = (map (SYM.(\(a,b)->(a, '{':b++"}")))).fst.eval
 
 --exec' s = (flip evalState s).eval
 --exec = (flip evalState []).eval
---
---main = do
---    x <- getLine
---    print.exec$x
+
+exec str = evalState (eval str) s
+          where s = loadSym'.parse$str
+
+main = do
+    x0 <- getContents
+    --x1 <- exec x0
+    print.exec$x0
