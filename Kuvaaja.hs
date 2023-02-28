@@ -43,12 +43,12 @@ splitBrackets s = if h=="{" then trimLRspaces (h++a):splitBrackets b
                  where (a,b) = break (=='{') s'
                        (h,s') = (splitAt 1).trimLRspaces$s
 
-newtype Descriptor = Descriptor {content::[String]}
+newtype Descriptor = Descriptor {content::[String]} deriving (Eq)
 instance Show Descriptor where
     show (Descriptor xs) = "{"++(intercalate ", " xs)++"}"
 mkDescriptor :: [String] -> Descriptor
 mkDescriptor = Descriptor . nub
-newtype SYM = SYM {eq::(String, Descriptor)}
+newtype SYM = SYM {eq::(String, Descriptor)} deriving (Eq)
 instance Show SYM where
     show (SYM(a,b)) = a++"="++show b
 query :: String -> State [SYM] (Maybe Descriptor)
@@ -102,8 +102,17 @@ doubleRun str = do
                     m <- eval str
                     return m
 
---main = do
---    x0 <- getContents
---    --x1 <- exec x0
---    print.exec$x0
-main=error ""
+--runNtimes 1 x0 = loadSym' (parse x0) >>= (\x1 -> eval x0 >>= (\x2 -> return x2))
+runNtimes 0 x0 = error "(runNtimes) `n`<1"
+runNtimes n x0 = loadSym' (parse x0) >>= (\x1 -> runNtimes' n x0)
+runNtimes' 1 x0 = eval x0 >>= (\x3 -> return x3)
+runNtimes' n x0 = eval x0 >>= (\x2 -> runNtimes' (n-1) x0)
+-- TODO: Find better method
+repeatEval x0 = map (`evalState` []) (repeatEval' x0)
+               where repeatEval' x0 = map runNtimes (iterate (+1) 1) <*> pure x0
+stableRes x0 = snd.head.(dropWhile (\(a,b) -> a/=b)) $ zip (repeatEval x0) (drop 1 (repeatEval x0))
+
+--main=error""
+main = do
+    x0 <- getContents
+    print$ stableRes x0
