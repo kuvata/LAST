@@ -43,27 +43,31 @@ splitBrackets s = if h=="{" then trimLRspaces (h++a):splitBrackets b
                  where (a,b) = break (=='{') s'
                        (h,s') = (splitAt 1).trimLRspaces$s
 
-newtype SYM = SYM {eq::(String, String)}
---genSYM :: (String, String) -> SYM
---genSYM (a,b) = SYM(a, '{':b++"}")
-genSYM :: (String, [String]) -> SYM
-genSYM (a,b) = SYM(a, '{':intercalate ", " b++"}")
+newtype Descriptor = Descriptor {content::[String]}
+instance Show Descriptor where
+    show (Descriptor xs) = "{"++(intercalate ", " xs)++"}"
+mkDescriptor :: [String] -> Descriptor
+mkDescriptor = Descriptor . nub
+newtype SYM = SYM {eq::(String, Descriptor)}
 instance Show SYM where
-    show (SYM(a,b)) = a++"="++b
-query :: String -> State [SYM] (Maybe String)
+    show (SYM(a,b)) = a++"="++show b
+query :: String -> State [SYM] (Maybe Descriptor)
 query x = state $ f x
          where f x xs = (,xs)$snd.eq <$> find ((==x).fst.eq) xs
 
-replaceSym :: String -> [SYM] -> String
+replaceSym :: String -> [SYM] -> [String]
 replaceSym x s = case evalState (query x) s of
-                   Just res -> res
+                   --Just res -> if null.content$res then '*':x else show res
+                   Just res -> content res
+                   --Nothing -> '*':x
                    Nothing -> error$"Cannot resolve symbol "++x
-replace :: String -> State [SYM] String
-replace x = state $ f x
-           where f a@(k:xs) s = let x' = (dropWhile (not.(=='*')) a) in
+replace :: String -> State [SYM] [String]
+replace x = state $ f01 x
+f01 :: String -> [SYM] -> ([String], [SYM])
+f01 a@(k:xs) s = let x' = (dropWhile (not.(=='*')) a) in
                                      (,s)$if (take 1 x')=="*"
-                                     then replaceSym (drop 1 x') s++"="++x'
-                                     else a
+                                     then replaceSym (drop 1 x') s-- ++"="++x'
+                                     else singleton a
 
 --evalRHS :: (String, [String]) -> [SYM] -> (String, String)
 --evalRHS :: (String, [String])
@@ -72,18 +76,18 @@ evalRHS x = state $ f x
                             $foldM (flip runState) s (map replace b)
 
 mem :: [SYM]
-mem = [SYM("a", "{b}"), SYM("c", "{d}")]
+mem = [SYM("a", Descriptor["b"]), SYM("c", Descriptor["d"])]
 -- parse :: String -> [SYM] ->
---eval :: String -> State [SYM] [String]
 eval str = state$ f str
-           where f str s = dupe
-                        .(map (genSYM.(second splitBrackets).(`evalState` s).evalRHS)) -- Replace `*(VARNAME)` to it's content
-                        .parse$str
+          where f str s = dupe
+                         .(map (SYM.(second mkDescriptor).(`evalState` s).evalRHS)) -- Replace `*(VARNAME)` to it's content
+                         .parse$str
                  --s = loadSym'.parse$str
+                genSYM (k,d) = SYM$(k, Descriptor (singleton d))
 loadSym' :: (Monad m) => [(String, [String])] -> StateT [SYM] m ()
-loadSym' = put.map (SYM.(\(a,b) -> (a, '{':intercalate "; " (filter ((/='*').(!!0)) b)++"}")))
-loadSym :: (Monad m) => [(String, String)] -> StateT [SYM] m ()
-loadSym = put.(map (SYM.(\(a,b) -> (a, '{':b++"}"))))
+loadSym' = put.map (SYM.(second Descriptor).(\(a,b) -> (a, (filter ((/='*').(!!0)) b))))
+--loadSym :: (Monad m) => [(String, String)] -> StateT [SYM] m ()
+--loadSym = put.(map (SYM.(\(a,b) -> (a, '{':b++"}"))))
 parse str = parseEQN.splitLines
            $str
 --exec = (map (SYM.(\(a,b)->(a, '{':b++"}")))).fst.eval
@@ -93,11 +97,12 @@ parse str = parseEQN.splitLines
 
 --exec str = (evalState (eval str)).loadSym'$parse str
 doubleRun str = do
-                    m0 <- loadSym' $ parse str
-                    m1 <- eval str
-                    --m2 <- loadSym'.parseEQN$m1
-                    --m3 <- eval str
-                    return m1
+                    m <- loadSym' $ parse str
+                    m <- eval str
+                    --m2 <- loadSym' m1
+                    m <- eval str
+                    m <- eval str
+                    return m
 
 --main = do
 --    x0 <- getContents
