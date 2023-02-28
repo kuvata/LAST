@@ -5,6 +5,7 @@ import Data.List
 import Control.Monad.Trans.State
 import Control.Monad
 import Data.Bifunctor (second)
+import Data.Tuple.Extra (dupe)
 
 trimLRspaces = reverse.(dropWhile isSpace)
               .reverse.(dropWhile isSpace)
@@ -35,9 +36,18 @@ splitEQUAL :: Input -> [(String, String)]
 splitEQUAL = map (f.(break (=='=')))
           where f (a,b) = (trimLRspaces a, trimLRspaces.(drop 1)$b)
 
+splitBrackets :: String -> [String]
+splitBrackets [] = []
+splitBrackets s = if h=="{" then trimLRspaces (h++a):splitBrackets b
+                  else singleton s
+                 where (a,b) = break (=='{') s'
+                       (h,s') = (splitAt 1).trimLRspaces$s
+
 newtype SYM = SYM {eq::(String, String)}
-genSYM :: (String, String) -> SYM
-genSYM (a,b) = SYM(a, '{':b++"}")
+--genSYM :: (String, String) -> SYM
+--genSYM (a,b) = SYM(a, '{':b++"}")
+genSYM :: (String, [String]) -> SYM
+genSYM (a,b) = SYM(a, '{':intercalate ", " b++"}")
 instance Show SYM where
     show (SYM(a,b)) = a++"="++b
 query :: String -> State [SYM] (Maybe String)
@@ -50,23 +60,28 @@ replaceSym x s = case evalState (query x) s of
                    Nothing -> error$"Cannot resolve symbol "++x
 replace :: String -> State [SYM] String
 replace x = state $ f x
-           where f a@(k:xs) s = (,s)$if k=='*' then replaceSym xs s else a
+           where f a@(k:xs) s = let x' = (dropWhile (not.(=='*')) a) in
+                                     (,s)$if (take 1 x')=="*"
+                                     then replaceSym (drop 1 x') s++"="++x'
+                                     else a
 
 --evalRHS :: (String, [String]) -> [SYM] -> (String, String)
 --evalRHS :: (String, [String])
 evalRHS x = state $ f x
-           where f (a,b) s = (,s).(a,).fst $ foldM (flip runState) s (map replace b)
+           where f (a,b) s = (,s).(a,).fst
+                            $foldM (flip runState) s (map replace b)
 
 mem :: [SYM]
 mem = [SYM("a", "{b}"), SYM("c", "{d}")]
 -- parse :: String -> [SYM] ->
-eval :: String -> State [SYM] [String]
+--eval :: String -> State [SYM] [String]
 eval str = state$ f str
-           where f str s = (,s)
-                        .(map (show.genSYM.(`evalState` s).evalRHS)) -- Replace `*(VARNAME)` to it's content
+           where f str s = dupe
+                        .(map (genSYM.(second splitBrackets).(`evalState` s).evalRHS)) -- Replace `*(VARNAME)` to it's content
                         .parse$str
                  --s = loadSym'.parse$str
-loadSym' = map$ SYM.(\(a,b) -> (a, '{':intercalate ", " (filter ((/='*').(!!0)) b)++"}"))
+loadSym' :: (Monad m) => [(String, [String])] -> StateT [SYM] m ()
+loadSym' = put.map (SYM.(\(a,b) -> (a, '{':intercalate "; " (filter ((/='*').(!!0)) b)++"}")))
 loadSym :: (Monad m) => [(String, String)] -> StateT [SYM] m ()
 loadSym = put.(map (SYM.(\(a,b) -> (a, '{':b++"}"))))
 parse str = parseEQN.splitLines
@@ -76,9 +91,16 @@ parse str = parseEQN.splitLines
 --exec' s = (flip evalState s).eval
 --exec = (flip evalState []).eval
 
-exec str = (evalState (eval str)).loadSym'$parse str
+--exec str = (evalState (eval str)).loadSym'$parse str
+doubleRun str = do
+                    m0 <- loadSym' $ parse str
+                    m1 <- eval str
+                    --m2 <- loadSym'.parseEQN$m1
+                    --m3 <- eval str
+                    return m1
 
-main = do
-    x0 <- getContents
-    --x1 <- exec x0
-    print.exec$x0
+--main = do
+--    x0 <- getContents
+--    --x1 <- exec x0
+--    print.exec$x0
+main=error ""
