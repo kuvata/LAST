@@ -57,17 +57,14 @@ query x = state $ f x
 
 replaceSym :: String -> [SYM] -> [String]
 replaceSym x s = case evalState (query x) s of
-                   --Just res -> if null.content$res then '*':x else show res
                    Just res -> content res
-                   --Nothing -> '*':x
                    Nothing -> error$"Cannot resolve symbol "++x
 replace :: String -> State [SYM] [String]
-replace x = state $ f01 x
-f01 :: String -> [SYM] -> ([String], [SYM])
-f01 a@(k:xs) s = let x' = (dropWhile (not.(=='*')) a) in
-                                     (,s)$if (take 1 x')=="*"
-                                     then replaceSym (drop 1 x') s-- ++"="++x'
-                                     else singleton a
+replace x = state $ f x
+           where f a@(k:xs) s = let x' = (dropWhile (not.(=='*')) a) in (,s)
+                               $if (take 1 x')=="*"
+                                then replaceSym (drop 1 x') s-- ++"="++x'
+                                else singleton a
 
 --evalRHS :: (String, [String]) -> [SYM] -> (String, String)
 --evalRHS :: (String, [String])
@@ -80,7 +77,8 @@ mem = [SYM("a", Descriptor["b"]), SYM("c", Descriptor["d"])]
 -- parse :: String -> [SYM] ->
 eval str = state$ f str
           where f str s = dupe
-                         .(map (SYM.(second mkDescriptor).(`evalState` s).evalRHS)) -- Replace `*(VARNAME)` to it's content
+                         .(map (SYM.(second mkDescriptor)
+                               .(`evalState` s).evalRHS)) -- Replace `*(VARNAME)` to it's content
                          .parse$str
                  --s = loadSym'.parse$str
                 genSYM (k,d) = SYM$(k, Descriptor (singleton d))
