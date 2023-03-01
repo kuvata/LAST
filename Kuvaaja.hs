@@ -115,4 +115,10 @@ stableRes x0 = snd.head.(dropWhile (\(a,b) -> a/=b)) $ zip (repeatEval x0) (drop
 --main=error""
 main = do
     x0 <- getContents
-    print$ stableRes x0
+    let res= stableRes x0
+    let hist=(takeWhile (/=res) (repeatEval x0))++[res]
+    print hist
+    putStr "Passes: "
+    print $ length hist
+    putStr "Result: "
+    print res
