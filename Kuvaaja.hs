@@ -32,6 +32,7 @@ mkDescriptor = Descriptor . nub
 type MEM = [SYM]
 
 
+trimLRspaces :: String -> String
 trimLRspaces = reverse.(dropWhile isSpace)
               .reverse.(dropWhile isSpace)
                
@@ -51,6 +52,7 @@ parseBracket  "{}" = []
 parseBracket  ('{':xs) = if takeLast xs /= '}' then error "Descriptor doesn't end with `}`"
                          else parseBracket' $ init xs
                         where takeLast (_:ys) = if length ys == 1 then head ys else takeLast ys
+                              takeLast [] = error "(parseBracket) Missing something..."
 parseBracket  _ = error "Descriptor doesn't start with `{`"
 
 
@@ -78,7 +80,7 @@ splitBrackets s = if h=="{" then trimLRspaces (h++a):splitBrackets b
 
 query :: String -> State MEM (Maybe Descriptor)
 query x = state $ f x
-         where f x xs = (,xs)$snd.eqn <$> find ((==x).fst.eqn) xs
+         where f y ys = (,ys)$snd.eqn <$> find ((==y).fst.eqn) ys
 
 replaceSym :: String -> MEM -> Descriptor
 replaceSym x s = case evalState (query x) s of
@@ -86,7 +88,7 @@ replaceSym x s = case evalState (query x) s of
                    Nothing -> error$"Cannot resolve symbol "++x
 replace :: String -> State MEM [String]
 replace x = state $ f x
-           where f a@(k:xs) s = let x' = (dropWhile (not.(=='*')) a) in (,s)
+           where f a s = let x' = (dropWhile (not.(=='*')) a) in (,s)
                                $if (take 1 x')=="*"
                                 then content$replaceSym (drop 1 x') s-- ++"="++x'
                                 else singleton a
@@ -104,29 +106,43 @@ eval s = (map (assignSYM.(`evalState` s).evalRHS)) -- Replace `*(VARNAME)` to it
 
 exec :: String -> State MEM MEM
 exec str = state$ f str
-          where f str s = (\(a,b)->(a, map loadSym' b)).dupe
-                         .(eval s).parse$str
+          where f str' s = (\(a,b)->(a, map loadSym' b)).dupe
+                         .(eval s).parse$str'
 
 loadSym :: [SYM] -> State MEM ()
 loadSym = put.map loadSym'
 loadSym' :: SYM -> SYM
 loadSym' (Selector x) = Selector.(\(a,b) -> (a, Descriptor(filter ((/='*').(!!0)) (content b))))$x
 loadSym' (Object x)   = Object.(\(a,b) -> (a, Descriptor(filter f (content b))))$x
-                       where f x = ((/='*').(!!0)$x) && x/="..."
+                       where f y = ((/='*').(!!0)$y) && y/="..."
 
 parse :: String -> [SYM]
 parse str = parseEQN.splitLines
            $str
 
-runNtimes 0 x0 = error "(runNtimes) `n`<1"
-runNtimes n x0 = loadSym (parse x0) >>= (\x1 -> runNtimes' n x0)
-runNtimes' 1 x0 = exec x0 >>= (\x3 -> return x3)
-runNtimes' n x0 = exec x0 >>= (\x2 -> runNtimes' (n-1) x0)
+runNtimes :: Int -> String -> State MEM MEM
+runNtimes 0 _  = error "(runNtimes) `n`<1"
+runNtimes n x0 = loadSym (parse x0) >>= (\_ -> runNtimes' n x0)
+runNtimes' :: Int -> String -> State MEM MEM
+runNtimes' 1 x0 = exec x0 >>= (\x1 -> return x1)
+runNtimes' n x0 = exec x0 >>= (\_ -> runNtimes' (n-1) x0)
 -- TODO: Find better method
+repeatEval :: String -> [MEM]
 repeatEval x0 = map (`evalState` []) (repeatEval' x0)
-               where repeatEval' x0 = map runNtimes (iterate (+1) 1) <*> pure x0
+               where repeatEval' x = map runNtimes (iterate (+1) 1) <*> pure x
+stableRes :: String -> MEM
 stableRes x0 = snd.head.(dropWhile (\(a,b) -> a/=b)) $ zip (repeatEval x0) (drop 1 (repeatEval x0))
 
+stripSelector :: MEM -> [SYM]
+stripSelector = filter stripSelector'
+stripSelector' :: SYM -> Bool
+stripSelector' (Selector _) = False
+stripSelector' (Object _) = True
+
+--stripNonEvaluatedSelector :: MEM -> [SYM]
+--stripNonEvaluatedSelector = error"not implemented yet"
+
+run :: String -> IO()
 run x0 = do
     let res= stableRes x0
     let hist=(takeWhile (/=res) (repeatEval x0))++[res]
@@ -134,8 +150,9 @@ run x0 = do
     putStr "Passes: "
     print $ length hist
     putStr "Result: "
-    print res
+    print.stripSelector$res
 
+main :: IO ()
 main = do
     x0 <- getContents
     run x0
